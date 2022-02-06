@@ -12,6 +12,9 @@ import os
 class AllBodyVector:
     def __init__(self):
         self.wristL = None
+        self.wristR = None
+        self.elbowR = None
+        self.upperArmR = None
         self.elbowL = None
         self.upperArmL = None
         self.upperBody = None
@@ -25,6 +28,16 @@ class AllBodyVector:
         id_left_elbow = 13
         id_left_wrist = 15
         self.elbowL = calculateVector(landmarks, id_left_elbow, id_left_wrist)
+
+    def assign_upperArmR(self, landmarks):
+        id_right_shoulder = 12
+        id_right_elbow = 14
+        self.upperArmR = calculateVector(landmarks, id_right_shoulder, id_right_elbow)
+
+    def assign_ElbowR(self, landmarks):
+        id_right_elbow = 14
+        id_right_wrist = 16
+        self.elbowR = calculateVector(landmarks, id_right_elbow, id_right_wrist)
 
     def assign_WristL(self, landmarks):
         id_left_wrist = 15
@@ -170,6 +183,8 @@ def main():
             allBodyVectorPacks.assign_ElbowL(lp)
             allBodyVectorPacks.assign_upperArmL(lp)
             allBodyVectorPacks.assign_UpperBody(lp)
+            allBodyVectorPacks.assign_ElbowR(lp)
+            allBodyVectorPacks.assign_upperArmR(lp)
 
             landmark_packed_json = json.dumps(allBodyVectorPacks, default=default_method, indent=2)
             print(landmark_packed_json)
