@@ -1,3 +1,5 @@
+import sys
+
 import cv2
 import mediapipe as mp
 import socket
@@ -5,27 +7,34 @@ import time
 import numpy as np
 import json
 from types import SimpleNamespace
+import os
 
 class AllBodyVector:
     def __init__(self):
-        self.wristR = None
-        self.elbowR = None
-        self.upperArmR = None
+        self.wristL = None
+        self.elbowL = None
+        self.upperArmL = None
+        self.upperBody = None
 
-    def assign_upperArmR(self, landmarks):
+    def assign_upperArmL(self, landmarks):
         id_left_shoulder = 11
         id_left_elbow = 13
-        self.upperArmR = calculateVector(landmarks,id_left_shoulder,id_left_elbow)
+        self.upperArmL = calculateVector(landmarks, id_left_shoulder, id_left_elbow)
 
-    def assign_ElbowR(self, landmarks):
+    def assign_ElbowL(self, landmarks):
         id_left_elbow = 13
         id_left_wrist = 15
-        self.elbowR = calculateVector(landmarks,id_left_elbow,id_left_wrist)
+        self.elbowL = calculateVector(landmarks, id_left_elbow, id_left_wrist)
 
-    def assign_WristR(self, landmarks):
+    def assign_WristL(self, landmarks):
         id_left_wrist = 15
-        emulatedPoint = calcEmulatedPoint(landmarks,"HandTip")
-        self.wristR = calculateVector_Manual(landmarks[15],emulatedPoint)
+        emulatedPoint = calcEmulatedPoint(landmarks, "HandTip")
+        self.wristL = calculateVector_Manual(landmarks[15], emulatedPoint)
+
+    def assign_UpperBody(self, landmarks):
+        required_points = {"id_left_shoulder": 11, "id_right_shoulder": 12, "id_right_hip": 24, "id_left_hip": 23}
+        emulatedPointVector = calcEmulatedPoint(landmarks, "UpperBody", required_points)
+        self.upperBody = emulatedPointVector
 
 
 class ElementVector:
@@ -39,7 +48,7 @@ class Vector:
     pass
 
 
-def calculateVector(landmarks,origin,index):
+def calculateVector(landmarks, origin, index):
     vector_packer = Vector()
     vector_packer.x = landmarks[index].x - landmarks[origin].x
     vector_packer.y = landmarks[index].y - landmarks[origin].y
@@ -47,7 +56,7 @@ def calculateVector(landmarks,origin,index):
     return vector_packer
 
 
-def calculateVector_Manual(origin,index):
+def calculateVector_Manual(origin, index):
     #  In case of emulated point, you can use it for manual point describe
     vector_packer = Vector()
     vector_packer.x = index.x - origin.x
@@ -56,11 +65,30 @@ def calculateVector_Manual(origin,index):
     return vector_packer
 
 
-def calcEmulatedPoint(landmarks,mode):
+def calculateMiddlePoint(point1, point2):
+    vector_packer = Vector()
+    vector_packer.x = (point1.x + point2.x)/2
+    vector_packer.y = (point1.y + point2.y)/2
+    vector_packer.z = (point1.z + point2.z)/2
+    return vector_packer
+
+
+def calcEmulatedPoint(landmarks, mode, requiredpoints):
     if mode == "HandTip":
         pass
 
-    return 0
+    if mode == "UpperBody":
+        # Calculate Upper Body Vector. In Unity It is Spine or Hip.
+        left_shoulder = landmarks[requiredpoints["id_left_shoulder"]]
+        right_shoulder = landmarks[requiredpoints["id_right_shoulder"]]
+        right_hip = landmarks[requiredpoints["id_right_hip"]]
+        left_hip = landmarks[requiredpoints["id_left_hip"]]
+        # Calc middle point of given two points
+        centre_hip = calculateMiddlePoint(left_shoulder,right_shoulder)
+        centre_shoulder = calculateMiddlePoint(left_hip,right_hip)
+        return calculateVector_Manual(centre_hip,centre_shoulder)
+
+    sys.exit("Invalid mode at calcEmulatedPoint")
 
 
 def default_method(item):
@@ -70,16 +98,16 @@ def default_method(item):
         raise TypeError
 
 
-def calculate_angle(a,b,c):
+def calculate_angle(a, b, c):
     # calc angle with 3S coordinate
-    v1 = a-b
-    v2 = c-b
-    angel = np.arccos((v1@v2) / (np.sqrt(v1[0]*v1[0]+v1[1]*v1[1]+v1[2]*v1[2]) * np.sqrt(v2[0]*v2[0]+v2[1]*v2[1]+v2[2]*v2[2])))
-    return angel * 180/np.pi
+    v1 = a - b
+    v2 = c - b
+    angel = np.arccos((v1 @ v2) / (np.sqrt(v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]) * np.sqrt(
+        v2[0] * v2[0] + v2[1] * v2[1] + v2[2] * v2[2])))
+    return angel * 180 / np.pi
 
 
 def main():
-
     id_left_shoulder = 11
     id_left_elbow = 13
     id_left_wrist = 15
@@ -96,7 +124,7 @@ def main():
 
     # For webcam input:
     cap = cv2.VideoCapture(0)
-    with mp_pose.Pose(min_detection_confidence=0.5,min_tracking_confidence=0.5) as pose:
+    with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
         while cap.isOpened():
             success, image = cap.read()
             if not success:
@@ -121,21 +149,27 @@ def main():
             # Flip the image horizontally for a selfie-view display.
             try:
                 lp = results.pose_world_landmarks.landmark  # Landmark Pack
-            except(AttributeError):
+            except AttributeError:
                 print("Detection Failed")
                 message = "Detection Failed"
+                allBodyVectorPacks = AllBodyVector()
+                landmark_packed_json = json.dumps(allBodyVectorPacks, default=default_method, indent=2)
+                send_len = sock.sendto(landmark_packed_json.encode('utf-8'), serv_address)
                 continue  # Skip this non-detected loop
 
             # Calculate angle of elbow Left
-            a = np.array([lp[id_left_shoulder].x,lp[id_left_shoulder].y,lp[id_left_shoulder].z])
+            a = np.array([lp[id_left_shoulder].x, lp[id_left_shoulder].y, lp[id_left_shoulder].z])
             b = np.array([lp[id_left_elbow].x, lp[id_left_elbow].y,
-                         lp[id_left_elbow].z])
+                          lp[id_left_elbow].z])
             c = np.array([lp[id_left_wrist].x, lp[id_left_wrist].y,
-                         lp[id_left_wrist].z])
-            print(calculate_angle(a,b,c))
+                          lp[id_left_wrist].z])
+            # print(calculate_angle(a, b, c))
+            # print(f"\r{lp[id_left_wrist].x * 10:.3f}, {lp[id_left_wrist].y * 10:.3f}, {lp[id_left_wrist].z * 10:.3f}",end="")
 
             allBodyVectorPacks = AllBodyVector()
-            allBodyVectorPacks.assign_ElbowR(lp)
+            allBodyVectorPacks.assign_ElbowL(lp)
+            allBodyVectorPacks.assign_upperArmL(lp)
+            allBodyVectorPacks.assign_UpperBody(lp)
 
             landmark_packed_json = json.dumps(allBodyVectorPacks, default=default_method, indent=2)
             print(landmark_packed_json)
@@ -147,6 +181,7 @@ def main():
             if cv2.waitKey(5) & 0xFF == 27:
                 break
     cap.release()
+
 
 if __name__ == "__main__":
     main()
